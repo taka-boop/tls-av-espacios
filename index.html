@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TLS AV — Espacios</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #f4f6f9; color: #222; }
+
+  header { background: #1a6fa8; padding: 14px 16px; display: flex; align-items: center; gap: 10px; }
+  header h1 { color: #fff; font-size: 17px; font-weight: 600; }
+  header span { color: rgba(255,255,255,0.7); font-size: 13px; }
+
+  .search-wrap { padding: 12px 16px; background: #fff; border-bottom: 1px solid #e0e0e0; position: sticky; top: 0; z-index: 10; }
+  .search-wrap input { width: 100%; padding: 9px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; outline: none; }
+  .search-wrap input:focus { border-color: #1a6fa8; }
+
+  .filtros { display: flex; gap: 8px; padding: 10px 16px; flex-wrap: wrap; background: #fff; border-bottom: 1px solid #e0e0e0; }
+  .filtro-btn { font-size: 12px; padding: 4px 12px; border-radius: 20px; border: 1px solid #ccc; background: #fff; cursor: pointer; color: #555; }
+  .filtro-btn.active { background: #1a6fa8; color: #fff; border-color: #1a6fa8; }
+
+  .contador { font-size: 12px; color: #888; padding: 8px 16px; }
+
+  .lista { padding: 8px 16px 24px; display: flex; flex-direction: column; gap: 10px; }
+
+  .card { background: #fff; border-radius: 10px; border: 1px solid #e0e0e0; overflow: hidden; }
+  .card-header { padding: 11px 14px 8px; }
+  .card-cliente { font-size: 11px; color: #1a6fa8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+  .card-sala { font-size: 15px; font-weight: 600; color: #1a1a1a; }
+  .card-provincia { font-size: 11px; color: #888; margin-top: 2px; display: flex; align-items: center; gap: 4px; }
+  .actualizado { font-size: 10px; color: #bbb; }
+  .card-links { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 14px 11px; border-top: 1px solid #f0f0f0; background: #fafafa; }
+  .link-btn { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid #d0d0d0; background: #fff; color: #1a6fa8; text-decoration: none; white-space: nowrap; }
+  .link-btn:hover { background: #e8f1fa; }
+  .link-btn.otros { color: #555; border-color: #bbb; }
+  .link-btn.pendiente { color: #bbb; border-color: #e5e5e5; cursor: default; font-style: italic; pointer-events: none; }
+
+  .estado-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .completa  { background: #28a745; }
+  .parcial   { background: #ffc107; }
+  .pendiente { background: #dc3545; }
+
+  .loading { text-align: center; padding: 40px 16px; color: #888; font-size: 14px; }
+  .error-msg { text-align: center; padding: 40px 16px; color: #dc3545; font-size: 13px; line-height: 1.6; }
+  .sin-resultado { text-align: center; padding: 40px 16px; color: #aaa; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>TLS AV</h1>
+  <span>Espacios</span>
+</header>
+
+<div class="search-wrap">
+  <input type="text" id="buscador" placeholder="Buscar por sala o cliente..." oninput="filtrar()">
+</div>
+
+<div class="filtros" id="filtros">
+  <button class="filtro-btn active" onclick="setFiltro('todas', this)">Todas</button>
+</div>
+
+<div class="contador" id="contador"></div>
+<div class="lista" id="lista"><div class="loading">Cargando espacios...</div></div>
+
+<script>
+const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8YKgS4m7o9kiqzs6DWkR_UGm_SKFBR2qBeaVjjJzvp8ZVozDdEzPxdzngaQXr7A/pub?gid=1193536449&single=true&output=csv";
+
+let todasSalas = [];
+let filtroActivo = "todas";
+
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+  return lines.slice(1).map(line => {
+    const cols = [];
+    let cur = "", inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ""; }
+      else { cur += ch; }
+    }
+    cols.push(cur.trim());
+    return cols;
+  });
+}
+
+function esLink(v) { return v && (v.startsWith("http://") || v.startsWith("https://")); }
+
+function estado(v) {
+  if (!v) return "pendiente";
+  const s = v.toLowerCase();
+  if (s.includes("completa")) return "completa";
+  if (s.includes("parcial")) return "parcial";
+  return "pendiente";
+}
+
+fetch(CSV_URL)
+  .then(r => { if (!r.ok) throw new Error("Error " + r.status); return r.text(); })
+  .then(text => {
+    const filas = parseCSV(text);
+    todasSalas = filas
+      .filter(f => f[0] && f[1] && !f[0].toLowerCase().includes("leyenda") && !f[0].toLowerCase().includes("cliente"))
+      .map(f => ({
+        cliente:    (f[0] || "").trim(),
+        sala:       (f[1] || "").trim(),
+        provincia:  (f[2] || "").trim(),
+        esquema:    (f[3] || "").trim(),
+        ips:        (f[4] || "").trim(),
+        manual:     (f[5] || "").trim(),
+        contactos:  (f[6] || "").trim(),
+        otros:      (f[7] || "").trim(),
+        estado:     estado(f[8] || ""),
+        actualizado:(f[9] || "").trim(),
+      }));
+
+    const provincias = [...new Set(todasSalas.map(s => s.provincia).filter(Boolean))].sort();
+    const filtrosDiv = document.getElementById("filtros");
+    provincias.forEach(p => {
+      const btn = document.createElement("button");
+      btn.className = "filtro-btn";
+      btn.textContent = p;
+      btn.onclick = () => setFiltro(p, btn);
+      filtrosDiv.appendChild(btn);
+    });
+
+    filtrar();
+  })
+  .catch(err => {
+    document.getElementById("lista").innerHTML =
+      `<div class="error-msg">No se pudieron cargar los datos.<br><small>${err}</small></div>`;
+  });
+
+function setFiltro(prov, btn) {
+  filtroActivo = prov;
+  document.querySelectorAll(".filtro-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  filtrar();
+}
+
+function filtrar() {
+  const q = document.getElementById("buscador").value.toLowerCase();
+  const res = todasSalas.filter(s => {
+    const matchProv = filtroActivo === "todas" || s.provincia === filtroActivo;
+    const matchQ = !q || s.sala.toLowerCase().includes(q) || s.cliente.toLowerCase().includes(q);
+    return matchProv && matchQ;
+  });
+  render(res);
+}
+
+function linkBtn(label, url, cls) {
+  if (esLink(url)) return `<a class="link-btn ${cls||''}" href="${url}" target="_blank">${label}</a>`;
+  return `<span class="link-btn pendiente">${label}</span>`;
+}
+
+function render(lista) {
+  document.getElementById("contador").textContent =
+    lista.length + " espacio" + (lista.length !== 1 ? "s" : "");
+  const cont = document.getElementById("lista");
+  if (!lista.length) {
+    cont.innerHTML = '<div class="sin-resultado">Sin resultados</div>';
+    return;
+  }
+  cont.innerHTML = lista.map(s => `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-cliente">${s.cliente}</div>
+        <div class="card-sala">${s.sala}</div>
+        <div class="card-provincia">
+          <span class="estado-dot ${s.estado}"></span>
+          ${s.provincia}
+          ${s.actualizado ? `<span class="actualizado">· Act. ${s.actualizado}</span>` : ""}
+        </div>
+      </div>
+      <div class="card-links">
+        ${linkBtn("Esquema", s.esquema)}
+        ${linkBtn("IPs", s.ips)}
+        ${linkBtn("Manual", s.manual)}
+        ${linkBtn("Contactos", s.contactos)}
+        ${linkBtn("+ Otros", s.otros, "otros")}
+      </div>
+    </div>
+  `).join("");
+}
+</script>
+</body>
+</html>
