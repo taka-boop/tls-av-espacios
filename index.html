@@ -39,7 +39,7 @@
   .estado-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .completa  { background: #28a745; }
   .parcial   { background: #ffc107; }
-  .pendiente { background: #dc3545; }
+  .pendiente-dot { background: #dc3545; }
 
   .loading { text-align: center; padding: 40px 16px; color: #888; font-size: 14px; }
   .error-msg { text-align: center; padding: 40px 16px; color: #dc3545; font-size: 13px; line-height: 1.6; }
@@ -65,7 +65,10 @@
 <div class="lista" id="lista"><div class="loading">Cargando espacios...</div></div>
 
 <script>
-const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8YKgS4m7o9kiqzs6DWkR_UGm_SKFBR2qBeaVjjJzvp8ZVozDdEzPxdzngaQXr7A/pub?gid=1193536449&single=true&output=csv";
+// Usamos la API de Google Sheets en formato JSON (no necesita fetch con CORS)
+const SHEET_ID = "2PACX-1vQ8YKgS4m7o9kiqzs6DWkR_UGm_SKFBR2qBeaVjjJzvp8ZVozDdEzPxdzngaQXr7A";
+const GID = "1193536449";
+const JSON_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${GID}&single=true&output=csv`;
 
 let todasSalas = [];
 let filtroActivo = "todas";
@@ -89,48 +92,62 @@ function parseCSV(text) {
 function esLink(v) { return v && (v.startsWith("http://") || v.startsWith("https://")); }
 
 function estado(v) {
-  if (!v) return "pendiente";
+  if (!v) return "pendiente-dot";
   const s = v.toLowerCase();
   if (s.includes("completa")) return "completa";
   if (s.includes("parcial")) return "parcial";
-  return "pendiente";
+  return "pendiente-dot";
 }
 
-fetch(CSV_URL)
-  .then(r => { if (!r.ok) throw new Error("Error " + r.status); return r.text(); })
-  .then(text => {
-    const filas = parseCSV(text);
-    todasSalas = filas
-      .filter(f => f[0] && f[1] && !f[0].toLowerCase().includes("leyenda") && !f[0].toLowerCase().includes("cliente"))
-      .map(f => ({
-        cliente:    (f[0] || "").trim(),
-        sala:       (f[1] || "").trim(),
-        provincia:  (f[2] || "").trim(),
-        esquema:    (f[3] || "").trim(),
-        ips:        (f[4] || "").trim(),
-        manual:     (f[5] || "").trim(),
-        contactos:  (f[6] || "").trim(),
-        otros:      (f[7] || "").trim(),
-        estado:     estado(f[8] || ""),
-        actualizado:(f[9] || "").trim(),
-      }));
-
-    const provincias = [...new Set(todasSalas.map(s => s.provincia).filter(Boolean))].sort();
-    const filtrosDiv = document.getElementById("filtros");
-    provincias.forEach(p => {
-      const btn = document.createElement("button");
-      btn.className = "filtro-btn";
-      btn.textContent = p;
-      btn.onclick = () => setFiltro(p, btn);
-      filtrosDiv.appendChild(btn);
+function cargar() {
+  // Usamos un proxy CORS público para evitar el bloqueo en iframe
+  const PROXY = "https://corsproxy.io/?";
+  fetch(PROXY + encodeURIComponent(JSON_URL))
+    .then(r => { if (!r.ok) throw new Error("Error " + r.status); return r.text(); })
+    .then(procesar)
+    .catch(() => {
+      // Si el proxy falla, intentamos directo (funciona fuera del iframe)
+      fetch(JSON_URL)
+        .then(r => { if (!r.ok) throw new Error("Error " + r.status); return r.text(); })
+        .then(procesar)
+        .catch(err => {
+          document.getElementById("lista").innerHTML =
+            `<div class="error-msg">No se pudieron cargar los datos.<br><small>${err}</small></div>`;
+        });
     });
+}
 
-    filtrar();
-  })
-  .catch(err => {
-    document.getElementById("lista").innerHTML =
-      `<div class="error-msg">No se pudieron cargar los datos.<br><small>${err}</small></div>`;
+function procesar(text) {
+  const filas = parseCSV(text);
+  todasSalas = filas
+    .filter(f => f[0] && f[1] && !f[0].toLowerCase().includes("leyenda") && !f[0].toLowerCase().includes("cliente"))
+    .map(f => ({
+      cliente:    (f[0] || "").trim(),
+      sala:       (f[1] || "").trim(),
+      provincia:  (f[2] || "").trim(),
+      esquema:    (f[3] || "").trim(),
+      ips:        (f[4] || "").trim(),
+      manual:     (f[5] || "").trim(),
+      contactos:  (f[6] || "").trim(),
+      otros:      (f[7] || "").trim(),
+      estado:     estado(f[8] || ""),
+      actualizado:(f[9] || "").trim(),
+    }));
+
+  const provincias = [...new Set(todasSalas.map(s => s.provincia).filter(Boolean))].sort();
+  const filtrosDiv = document.getElementById("filtros");
+  // Limpiar filtros previos excepto "Todas"
+  while (filtrosDiv.children.length > 1) filtrosDiv.removeChild(filtrosDiv.lastChild);
+  provincias.forEach(p => {
+    const btn = document.createElement("button");
+    btn.className = "filtro-btn";
+    btn.textContent = p;
+    btn.onclick = () => setFiltro(p, btn);
+    filtrosDiv.appendChild(btn);
   });
+
+  filtrar();
+}
 
 function setFiltro(prov, btn) {
   filtroActivo = prov;
@@ -183,6 +200,8 @@ function render(lista) {
     </div>
   `).join("");
 }
+
+cargar();
 </script>
 </body>
 </html>
