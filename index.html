@@ -148,8 +148,9 @@ let queryActual = "";
 
 function parseCSV(text) {
   const lines = text.trim().split("\n");
-  const cabecera = parseLine(lines[0]);
-  return lines.slice(1).map(l => {
+  // Fila 1: título, Fila 2: descripción, Fila 3: cabecera real, Fila 4+: datos
+  const cabecera = parseLine(lines[2]);
+  return lines.slice(3).map(l => {
     const cols = parseLine(l);
     const obj = {};
     cabecera.forEach((k, i) => obj[k.trim()] = (cols[i] || "").trim());
@@ -202,7 +203,11 @@ fetch(CSV_URL)
         estado:     estadoClase(f["Estado"] || ""),
         actualizado:f["Actualizado"]    || "",
       }))
-      .filter(s => s.cliente.trim() !== "" && s.sala.trim() !== "");
+      .filter(s => s.cliente.trim() !== "" && s.sala.trim() !== ""
+        && !s.cliente.toLowerCase().includes("leyenda")
+        && !s.cliente.toLowerCase().startsWith("completa")
+        && !s.cliente.toLowerCase().startsWith("parcial")
+        && !s.cliente.toLowerCase().startsWith("pendiente"));
 
     const provincias = [...new Set(todasSalas.map(s => s.provincia).filter(Boolean))].sort();
     const filtrosDiv = document.getElementById("filtros");
